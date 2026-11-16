@@ -1,0 +1,94 @@
+<?php
+namespace Starbug\Admin;
+
+use Starbug\Admin\Db\Query\AdminCollection;
+use Starbug\Db\Collection\SelectCollection;
+use Starbug\Db\Operation\Delete;
+use Starbug\Db\Operation\Save;
+use Starbug\Routing\Controller\ViewController;
+use Starbug\Routing\Route;
+use Starbug\Routing\RouteProviderInterface;
+use Starbug\Imports\Admin\ImportsGrid;
+
+class RouteProvider implements RouteProviderInterface {
+
+  public function configure(Route $routes) {
+    // admin group
+    $admin = $routes->addRoute("admin", ViewController::class, [
+      "title" => "Admin",
+      "groups" => "admin",
+      "theme" => "storm",
+      "menu" => "admin",
+      "view" => "admin.html"
+    ]);
+  }
+  protected function addCrudRoutes(Route $routes, $model) {
+    $routes->setController(ViewController::class);
+    $routes->setOption("view", "admin/list.html");
+    $routes->setOption("model", $model);
+    $routes->setOption("successUrl", $routes->getPath());
+    $routes->setOption("cancelUrl", $routes->getPath());
+    $routes->setOption("formParams", ["model" => $model]);
+
+    $create = $routes->addRoute("/create", ViewController::class, ["view" => "admin/create.html"])
+      ->onPost(Save::class);
+
+    $update = $routes->addRoute("/update/{id:[0-9]+}", ViewController::class, ["view" => "admin/update.html"])
+      ->onPost(Save::class)
+      ->resolve("row", "Starbug\Routing\Resolvers\RowById");
+
+    $routes->addRoute("/delete/{id:[0-9]+}", ViewController::class, ["view" => "admin/delete.html"])
+      ->onPost(Delete::class);
+
+    $routes->addRoute("/import", ViewController::class, [
+      "model" => "imports",
+      "view" => "admin/list.html",
+      "grid" => ImportsGrid::class,
+      "listParams" => ["model" => $model]
+    ]);
+
+    $this->addXhr($create);
+    $this->addXhr($update);
+
+    return $routes;
+  }
+
+  protected function addXhr(Route $route) {
+    return $route->addRoute(".{format:xhr}", $route->getController(), ["successUrl" => false]);
+  }
+
+  protected function addStatefulRedirects(Route $route, $url) {
+    $route->setOption("successUrl", $url);
+    $route->getRoute("/create")->resolve("row", "Starbug\Routing\Resolvers\RowByInsertId", "outbound");
+    $route->getRoute("/update/{id:[0-9]+}")->resolve("row", "Starbug\Routing\Resolvers\RowById");
+    return $route;
+  }
+
+  protected function addAdminApiRoute(Route $route, $model, $collection = AdminCollection::class) {
+    return $this->addApiRoute($route, $model, $collection)
+      ->onPost(Save::class)
+      ->onDelete(Delete::class);
+  }
+
+  protected function addApiRoute(Route $route, $model, $collection, $options = []) {
+    $route->setController("Starbug\Api\Controller\CollectionController");
+    $route->setOptions($options + compact('model', 'collection'));
+    return $route;
+  }
+
+  protected function addCrud(Route $routes, $model, $listOptions = []) {
+    $urlName = str_replace("_", "-", $model);
+    $crud = [];
+
+    $admin = $routes->getRoute("admin");
+    $crud["list"] = $this->addCrudRoutes($admin->addRoute("/{$urlName}"), $model)->setOptions($listOptions);
+    $crud["create"] = $crud["list"]->getRoute("/create");
+    $crud["update"] = $crud["list"]->getRoute("/update/{id:[0-9]+}");
+
+    $api = $routes->getRoute("api");
+    $crud["adminApi"] = $this->addAdminApiRoute($api->addRoute("/{$urlName}/admin.{format:json|csv}"), $model);
+    $crud["selectApi"] = $api->addRoute("/{$urlName}/select.{format:json}");
+    $this->addApiRoute($crud["selectApi"], $model, SelectCollection::class);
+    return $crud;
+  }
+}

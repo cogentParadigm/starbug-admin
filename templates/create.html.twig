@@ -1,0 +1,14 @@
+{% extends "panel."~ route.getOption("format")|default("html") ~ ".twig" %}
+
+{% if form_header is empty and model is not empty %}
+  {% set form_header = "New " ~ helper("schema").getTable(model).getOption("singular_label") %}
+{% endif %}
+{% block title %}{{ form_header }}{% endblock %}
+{% block body %}
+  {% if formParams is empty %}
+    {% set formParams = {} %}
+  {% endif %}
+  {% set formParams = formParams|merge({"operation": action ?? "create"}) %}
+  {% set formParams = request.getQueryParams()|merge(formParams) %}
+  {{ helper("displays").render(form, formParams) }}
+{% endblock %}
